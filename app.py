@@ -11,15 +11,17 @@ st.title("🍔 隔壁早餐店 - 自動排班系統")
 # --- 1. 建立資料庫連線 ---
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# 定義所有夥伴與班別
+# 定義所有夥伴與班別 (加上顏色標籤)
 full_time = ["權 (正)", "Popo(正)", "Ting(正)"]
 part_time = ["柏吟(兼)", "Ping(兼)", "雅妍(兼)", "胖弟(兼)"]
 all_employees = full_time + part_time
-all_shifts = ["休", "6:30", "8:00", "10:30", "7:00", "9:30", "10:00"]
+
+# 給每個班別一個專屬顏色！
+all_shifts = ["🔴 休", "🔵 6:30", "🟢 8:00", "🟡 10:30", "🟣 7:00", "🟠 9:30", "🟤 10:00"]
 
 # 定義每日需求與班別
-weekday_shifts = ["6:30", "8:00", "10:30"] # 平日需 3 人 (2正 1兼)
-weekend_shifts = ["7:00", "8:00", "8:00", "9:30", "10:00"] # 假日需 5 人
+weekday_shifts = ["🔵 6:30", "🟢 8:00", "🟡 10:30"] # 平日需 3 人 
+weekend_shifts = ["🟣 7:00", "🟢 8:00", "🟢 8:00", "🟠 9:30", "🟤 10:00"] # 假日需 5 人
 
 tab1, tab2 = st.tabs(["🗓️ 第一步：夥伴畫休登記", "🤖 第二步：一鍵自動排班與微調"])
 
@@ -107,7 +109,7 @@ with tab2:
         with st.spinner("排班大腦運算中..."):
             
             # --- 建立空的排班總表字典 ---
-            schedule_result = {emp: ["休"] * num_days for emp in all_employees}
+            schedule_result = {emp: ["🔴 休"] * num_days for emp in all_employees}
             
             # 追蹤每個人連續上班的天數
             consecutive_days = {emp: 0 for emp in all_employees}
@@ -191,7 +193,7 @@ with tab2:
     
     try:
         schedule_df = conn.read(worksheet="最終班表", ttl=0)
-        schedule_df = schedule_df.dropna(how="all").fillna("休")
+        schedule_df = schedule_df.dropna(how="all").fillna("🔴 休")
         schedule_df.set_index(schedule_df.columns[0], inplace=True)
         
         schedule_configs = {
