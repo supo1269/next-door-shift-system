@@ -171,36 +171,66 @@ with tab2:
         schedule_df = schedule_df.dropna(how="all").fillna("休")
         schedule_df.set_index(schedule_df.columns[0], inplace=True)
         
-        # 1. 定義顏色函數（柔和的粉色系，不傷眼睛）
+        # 1. 定義顏色函數
         def style_cells(val):
             if val == "休":
-                return "background-color: #FFD2D2; color: #D60000; font-weight: bold;" # 柔和紅
+                return "background-color: #FFD2D2; color: #D60000; font-weight: bold;"
             elif val == "6:30":
-                return "background-color: #D2E9FF; color: #005EA6;" # 柔和藍
+                return "background-color: #D2E9FF; color: #005EA6;"
             elif val == "8:00":
-                return "background-color: #E1F5FE; color: #0288D1;" # 淺天藍
+                return "background-color: #E1F5FE; color: #0288D1;"
             elif val == "10:30":
-                return "background-color: #FFF3CD; color: #856404;" # 柔和黃
+                return "background-color: #FFF3CD; color: #856404;"
             elif val == "7:00":
-                return "background-color: #E8D2FF; color: #6F00D2;" # 柔和紫
+                return "background-color: #E8D2FF; color: #6F00D2;"
             elif val == "9:30":
-                return "background-color: #FFE4CA; color: #A65100;" # 柔和橘
+                return "background-color: #FFE4CA; color: #A65100;"
             elif val == "10:00":
-                return "background-color: #E2F0D9; color: #385623;" # 柔和綠
+                return "background-color: #E2F0D9; color: #385623;"
             return ""
 
-        # 2. 建立一個勾選框，讓老闆決定要「看班表」還是「改班表」
         is_edit_mode = st.checkbox("✍️ 開啟【手動微調模式】（會暫時拔除顏色，允許下拉修改）")
 
         if not is_edit_mode:
-            # 【預覽模式】：用 st.dataframe 加上 Pandas 漂亮的底色
+            # 【預覽模式】：動態加上星期幾
+            display_df = schedule_df.copy()
+            new_columns = []
+            for col in display_df.columns:
+                if str(col).isdigit(): # 確認是數字日期
+                    day_int = int(col)
+                    # 防呆：確保日期沒有超過該月總天數 (例如 6月沒有 31號)
+                    if day_int <= num_days:
+                        d = datetime.date(target_year, target_month, day_int)
+                        w = weekday_mapping[d.weekday()]
+                        new_columns.append(f"{col} ({w})")
+                    else:
+                        new_columns.append(str(col)) # 超出的天數保持原樣
+                else:
+                    new_columns.append(str(col))
+            display_df.columns = new_columns # 套用新標題
+            
             st.subheader("📋 本月班表總表（彩色預覽）")
-            styled_df = schedule_df.style.map(style_cells)
+            styled_df = display_df.style.map(style_cells)
             st.dataframe(styled_df, use_container_width=True, height=350)
+            
         else:
-            # 【編輯模式】：切換回可以下拉修改的互動表格
+            # 【編輯模式】：利用 column_config 的 label 屬性，只改顯示名稱不改底層資料
             st.subheader("🛠️ 班表微調中...")
-            schedule_configs = {str(col): st.column_config.SelectboxColumn(str(col), options=all_shifts) for col in schedule_df.columns}
+            schedule_configs = {}
+            for col in schedule_df.columns:
+                if str(col).isdigit():
+                    day_int = int(col)
+                    if day_int <= num_days:
+                        d = datetime.date(target_year, target_month, day_int)
+                        w = weekday_mapping[d.weekday()]
+                        display_label = f"{col} ({w})" # 顯示為 1 (一)
+                    else:
+                        display_label = str(col)
+                    # 設定下拉選單，並套用新的顯示名稱
+                    schedule_configs[str(col)] = st.column_config.SelectboxColumn(
+                        label=display_label, 
+                        options=all_shifts
+                    )
             
             edited_schedule_df = st.data_editor(
                 schedule_df,
@@ -212,6 +242,7 @@ with tab2:
             
             if st.button("💾 儲存微調後的最終班表", type="primary"):
                 save_schedule_df = edited_schedule_df.reset_index()
+                # 存檔時，底層依然是乾淨的 1, 2, 3，不會把星期幾寫進資料庫！
                 conn.update(worksheet="最終班表", data=save_schedule_df)
                 st.success("✅ 最終班表已成功儲存！")
                 st.rerun()
