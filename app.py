@@ -155,26 +155,30 @@ with tab2:
                 shifts_to_assign = []
                 assigned_today = []
                 
-                # 3. 依照平假日規則發派班別
+                # 3. 依照平假日規則發派班別 (盡力排班模式)
+                shifts_to_assign = []
+                assigned_today = []
+                
                 if not is_weekend:
-                    # 平日需求：2 正職 + 1 兼職
-                    if len(available_ft) >= 2 and len(available_pt) >= 1:
-                        assigned_today = available_ft[:2] + available_pt[:1]
-                        shifts_to_assign = weekday_shifts.copy()
-                    else:
-                        st.warning(f"⚠️ {date_str} 平日人手不足！(需要 2正1兼，目前只有 {len(available_ft)}正 {len(available_pt)}兼)")
+                    # 平日：盡量抓 2 正 1 兼
+                    assigned_today = available_ft[:2] + available_pt[:1]
+                    shifts_to_assign = weekday_shifts.copy()
+                    
+                    if len(available_ft) < 2 or len(available_pt) < 1:
+                        st.warning(f"⚠️ {date_str} 平日人手不足！(已先幫你排入能上班的夥伴)")
                 else:
-                    # 假日需求：5 人 (不限正兼，先抓正職再抓兼職)
+                    # 假日：盡量抓 5 人
                     all_available = available_ft + available_pt
-                    if len(all_available) >= 5:
-                        assigned_today = all_available[:5]
-                        shifts_to_assign = weekend_shifts.copy()
-                    else:
-                        st.warning(f"⚠️ {date_str} 假日人手不足！(需要 5 人，目前只有 {len(all_available)} 人)")
+                    assigned_today = all_available[:5]
+                    shifts_to_assign = weekend_shifts.copy()
+                    
+                    if len(all_available) < 5:
+                        st.warning(f"⚠️ {date_str} 假日人手不足！(已先幫你排入能上班的夥伴)")
 
                 # 4. 把班別填入結果，並更新連續上班天數
-                random.shuffle(shifts_to_assign) # 隨機分配班別時間
+                random.shuffle(shifts_to_assign) # 隨機打亂當天的班別
                 for i, emp in enumerate(assigned_today):
+                    # 把挑選出的班別，依序發派給今天能上班的人
                     schedule_result[emp][day_idx] = shifts_to_assign[i]
                     consecutive_days[emp] += 1
                 
