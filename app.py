@@ -76,7 +76,7 @@ with tab1:
         current_month_df = pd.DataFrame(new_rows)
         
         updated_df = pd.concat([other_months_df, current_month_df], ignore_index=True)
-        conn.update(worksheet="休假紀錄", data=updated_df, clear=True)
+        conn.update(worksheet="休假紀錄", data=updated_df)
         st.success("✅ 所有人畫休紀錄已成功同步至雲端！")
         st.rerun()
 
@@ -182,7 +182,7 @@ with tab2:
             final_df.insert(0, "夥伴 \ 日期", final_df.index)
             
             # 更新雲端
-            conn.update(worksheet="最終班表", data=final_df, clear=True)
+            conn.update(worksheet="最終班表", data=final_df)
             st.success("🎉 排班運算完成！結果已存入下方總表。")
             st.rerun()
 
@@ -209,7 +209,7 @@ with tab2:
         
         if st.button("💾 儲存微調後的最終班表"):
             save_schedule_df = edited_schedule_df.reset_index()
-            conn.update(worksheet="最終班表", data=save_schedule_df, clear=True)
+            conn.update(worksheet="最終班表", data=save_schedule_df)
             st.success("✅ 最終班表已成功儲存！")
     except Exception as e:
         st.info("目前還沒有排班資料，請點擊上方按鈕開始自動排班。")
