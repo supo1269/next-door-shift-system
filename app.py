@@ -1,48 +1,72 @@
 import streamlit as st
 import pandas as pd
 from streamlit_gsheets import GSheetsConnection
+import datetime
 
-st.set_page_config(layout="wide") # 讓網頁變寬，更適合看月班表
-st.title("🍔 隔壁早餐店 - 月班表系統")
+st.set_page_config(layout="wide")
+st.title("🍔 隔壁早餐店 - 自動排班系統")
 
-# --- 1. 建立連線並讀取資料 ---
+# --- 建立資料庫連線 ---
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-try:
-    df = conn.read(worksheet="工作表1", ttl=0)
-    df = df.dropna(how="all")
+# 定義員工名單 (區分正職與兼職)
+full_time = ["權 (正)", "Popo(正)", "Ting(正)"]
+part_time = ["柏吟(兼)", "Ping(兼)", "雅妍(兼)", "胖弟(兼)"]
+all_employees = full_time + part_time
+
+# --- 建立網頁頁籤 ---
+tab1, tab2 = st.tabs(["🗓️ 第一步：畫休登記", "✨ 第二步：自動排班與總表"])
+
+# ==========================================
+# 頁籤一：畫休登記介面
+# ==========================================
+with tab1:
+    st.subheader("📝 新增休假")
     
-    # 填補空值為 False，這樣 Streamlit 才會全部以勾選框顯示
-    df = df.fillna(False) 
-    
-    # 【關鍵設定】：將第一欄（夥伴名稱）設為 Index
-    # 這樣在畫面上往右滑動看月底的班時，名字才會固定凍結在左邊！
-    df.set_index(df.columns[0], inplace=True)
+    # 建立輸入表單
+    with st.form("leave_form"):
+        col1, col2 = st.columns(2)
+        with col1:
+            selected_emp = st.selectbox("選擇員工", all_employees)
+        with col2:
+            # 讓員工選擇要休哪一天
+            selected_date = st.date_input("選擇休假日期")
+            
+        submitted = st.form_submit_button("送出休假")
+        
+        if submitted:
+            # 讀取原本的休假紀錄
+            try:
+                leave_df = conn.read(worksheet="休假紀錄", ttl=0)
+                leave_df = leave_df.dropna(how="all")
+            except:
+                leave_df = pd.DataFrame(columns=["員工姓名", "休假日期"])
 
-except Exception as e:
-    st.error(f"讀取試算表失敗，請檢查連線：{e}")
-    st.stop()
+            # 檢查是否已經重複登記
+            date_str = selected_date.strftime("%Y-%m-%d")
+            is_duplicate = ((leave_df["員工姓名"] == selected_emp) & (leave_df["休假日期"] == date_str)).any()
+            
+            if is_duplicate:
+                st.warning(f"⚠️ {selected_emp} 在 {date_str} 已經劃過休囉！")
+            else:
+                # 將新資料加進去並存回 Google Sheets
+                new_data = pd.DataFrame([{"員工姓名": selected_emp, "休假日期": date_str}])
+                updated_df = pd.concat([leave_df, new_data], ignore_index=True)
+                conn.update(worksheet="休假紀錄", data=updated_df)
+                st.success(f"✅ 已成功登記：{selected_emp} 於 {date_str} 休假！")
 
-st.write("👉 請直接點擊格子進行排班（打勾代表上班），完成後點擊最下方按鈕儲存。")
+    st.divider()
+    st.subheader("📋 目前已登記的休假清單")
+    # 顯示目前的休假表，方便老闆核對
+    try:
+        current_leaves = conn.read(worksheet="休假紀錄", ttl=0).dropna(how="all")
+        st.dataframe(current_leaves, use_container_width=True, hide_index=True)
+    except:
+        st.info("目前還沒有人劃休。")
 
-# --- 2. 顯示互動式月班表 ---
-# 針對所有日期欄位設定為 CheckboxColumn
-column_configs = {
-    str(col): st.column_config.CheckboxColumn(str(col)) 
-    for col in df.columns
-}
-
-# 渲染表格
-edited_df = st.data_editor(
-    df,
-    column_config=column_configs,
-    use_container_width=True,
-    height=500 # 設定一個適合的高度
-)
-
-# --- 3. 儲存按鈕 ---
-if st.button("💾 同步儲存班表至雲端", type="primary"):
-    # 存回 Google Sheets 前，要把 Index (夥伴名稱) 變回一般的欄位
-    save_df = edited_df.reset_index()
-    conn.update(worksheet="工作表1", data=save_df)
-    st.success("班表已成功同步更新！")
+# ==========================================
+# 頁籤二：預留給未來的排班演算法
+# ==========================================
+with tab2:
+    st.subheader("🤖 系統自動排班 (開發中...)")
+    st.write("未來只要按下按鈕，系統就會自動扣除【頁籤一】的休假名單，並依照平日/假日的人力規則生成班表。")
