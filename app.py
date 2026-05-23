@@ -11,22 +11,21 @@ st.title("🍔 隔壁早餐店 - 自動排班系統")
 # --- 1. 建立資料庫連線 ---
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# 定義所有夥伴與班別 (加上顏色標籤)
+# 固定 7 位夥伴名單
 full_time = ["權 (正)", "Popo(正)", "Ting(正)"]
 part_time = ["柏吟(兼)", "Ping(兼)", "雅妍(兼)", "胖弟(兼)"]
 all_employees = full_time + part_time
 
-# 給每個班別一個專屬顏色！
-all_shifts = ["🔴 休", "🔵 6:30", "🟢 8:00", "🟡 10:30", "🟣 7:00", "🟠 9:30", "🟤 10:00"]
+# 恢復乾淨的純文字班別
+all_shifts = ["休", "6:30", "8:00", "10:30", "7:00", "9:30", "10:00"]
+weekday_shifts = ["6:30", "8:00", "10:30"] 
+weekend_shifts = ["7:00", "8:00", "8:00", "9:30", "10:00"]
 
-# 定義每日需求與班別
-weekday_shifts = ["🔵 6:30", "🟢 8:00", "🟡 10:30"] # 平日需 3 人 
-weekend_shifts = ["🟣 7:00", "🟢 8:00", "🟢 8:00", "🟠 9:30", "🟤 10:00"] # 假日需 5 人
-
+# --- 2. 建立網頁頁籤 ---
 tab1, tab2 = st.tabs(["🗓️ 第一步：夥伴畫休登記", "🤖 第二步：一鍵自動排班與微調"])
 
 # ==========================================
-# 頁籤一：畫休登記 (與先前相同，省略部分重複註解)
+# 頁籤一：夥伴畫休登記 (保持不變)
 # ==========================================
 with tab1:
     st.subheader("📝 所有人畫休調整")
@@ -58,11 +57,9 @@ with tab1:
 
     st.write("---")
     current_selections = {}
-    
     for emp in all_employees:
         emp_saved_leaves = leave_df[leave_df["員工姓名"] == emp]["休假日期"].tolist()
         default_vals = [date_to_option_map[d] for d in emp_saved_leaves if d in date_to_option_map]
-        
         selected = st.multiselect(f"👤 {emp} 的不克上班日期", options=date_options, default=default_vals, key=f"leave_{emp}")
         current_selections[emp] = [s.split(" ")[0] for s in selected]
 
@@ -75,16 +72,11 @@ with tab1:
         for emp, dates in current_selections.items():
             for d_str in dates:
                 new_rows.append({"員工姓名": emp, "休假日期": d_str})
-                
-        # 【關鍵修正 1】：強制指定欄位名稱，避免 0 人畫休時產生沒有欄位的幽靈表格
         current_month_df = pd.DataFrame(new_rows, columns=["員工姓名", "休假日期"])
         
         updated_df = pd.concat([other_months_df, current_month_df], ignore_index=True)
-        
-        # 【關鍵修正 2】：如果連舊月份都沒資料，確保仍寫入正確的標題結構
         if updated_df.empty:
             updated_df = pd.DataFrame(columns=["員工姓名", "休假日期"])
-            
         conn.update(worksheet="休假紀錄", data=updated_df)
         st.success("✅ 所有人畫休紀錄已成功同步至雲端！")
         st.rerun()
@@ -94,7 +86,6 @@ with tab1:
     try:
         prefix = f"{target_year}-{target_month:02d}-"
         display_df = leave_df[leave_df["休假日期"].str.startswith(prefix)].copy()
-        
         if not display_df.empty:
             display_df["MM-DD"] = display_df["休假日期"].apply(lambda x: x.split("-")[1] + "-" + x.split("-")[2])
             summary_df = display_df.groupby("員工姓名")["MM-DD"].apply(lambda x: " / ".join(sorted(x))).reset_index()
@@ -105,124 +96,125 @@ with tab1:
     except:
         st.info("目前沒有任何人畫休。")
 
+
 # ==========================================
-# 頁籤二：核心大腦 - 自動排班與微調
+# 頁籤二：核心大腦 - 自動排班與精美色彩表
 # ==========================================
 with tab2:
     st.subheader("✨ 智慧自動排班系統")
-    st.write(f"系統將針對 **{target_year} 年 {target_month} 月** 進行自動排班運算。")
+    st.write(f"系統將針對 **{target_year} 年 {target_month} 月** 進行自動排班。")
     
     if st.button("🤖 開始依規則自動排班", type="primary"):
         with st.spinner("排班大腦運算中..."):
-            
-            # --- 建立空的排班總表字典 ---
-            schedule_result = {emp: ["🔴 休"] * num_days for emp in all_employees}
-            
-            # 追蹤每個人連續上班的天數
+            schedule_result = {emp: ["休"] * num_days for emp in all_employees}
             consecutive_days = {emp: 0 for emp in all_employees}
-
-            # 抓取本月畫休名單
             prefix = f"{target_year}-{target_month:02d}-"
             this_month_leaves = leave_df[leave_df["休假日期"].str.startswith(prefix)]
             
-            # 每天逐一排班
             for day_idx in range(num_days):
                 current_date = datetime.date(target_year, target_month, day_idx + 1)
                 date_str = current_date.strftime("%Y-%m-%d")
                 is_weekend = current_date.weekday() >= 5
                 
-                # 1. 找出今天不能上班的人 (包含畫休，以及連上6天的人)
                 unavailable = this_month_leaves[this_month_leaves["休假日期"] == date_str]["員工姓名"].tolist()
                 
-                # 規則：雅妍只有六日要上班 (平日強制設為不可上班)
                 if not is_weekend and "雅妍(兼)" not in unavailable:
                     unavailable.append("雅妍(兼)")
                 
-                # 規則：不能連上超過 6 天 (若前一天上滿 6 天，今天強制休假)
                 for emp in all_employees:
                     if consecutive_days[emp] >= 6 and emp not in unavailable:
                         unavailable.append(emp)
 
-                # 2. 篩選出今天「可以上班」的正職與兼職
                 available_ft = [e for e in full_time if e not in unavailable]
                 available_pt = [e for e in part_time if e not in unavailable]
                 
-                # 隨機打亂順序，避免每次都排到同一個人
                 random.shuffle(available_ft)
                 random.shuffle(available_pt)
                 
-                # 準備發派的班別
-                shifts_to_assign = []
-                assigned_today = []
-                
-                # 3. 依照平假日規則發派班別 (盡力排班模式)
                 shifts_to_assign = []
                 assigned_today = []
                 
                 if not is_weekend:
-                    # 平日：盡量抓 2 正 1 兼
                     assigned_today = available_ft[:2] + available_pt[:1]
                     shifts_to_assign = weekday_shifts.copy()
-                    
                     if len(available_ft) < 2 or len(available_pt) < 1:
-                        st.warning(f"⚠️ {date_str} 平日人手不足！(已先幫你排入能上班的夥伴)")
+                        st.warning(f"⚠️ {date_str} 平日人手不足！")
                 else:
-                    # 假日：盡量抓 5 人
                     all_available = available_ft + available_pt
                     assigned_today = all_available[:5]
                     shifts_to_assign = weekend_shifts.copy()
-                    
                     if len(all_available) < 5:
-                        st.warning(f"⚠️ {date_str} 假日人手不足！(已先幫你排入能上班的夥伴)")
+                        st.warning(f"⚠️ {date_str} 假日人手不足！")
 
-                # 4. 把班別填入結果，並更新連續上班天數
-                random.shuffle(shifts_to_assign) # 隨機打亂當天的班別
+                random.shuffle(shifts_to_assign)
                 for i, emp in enumerate(assigned_today):
-                    # 把挑選出的班別，依序發派給今天能上班的人
                     schedule_result[emp][day_idx] = shifts_to_assign[i]
                     consecutive_days[emp] += 1
                 
-                # 沒被排到班的人，連續上班天數歸零
                 for emp in all_employees:
                     if emp not in assigned_today:
                         consecutive_days[emp] = 0
 
-            # --- 整理運算結果並存回雲端 ---
             final_df = pd.DataFrame(schedule_result).T
-            # 將欄位名稱設為 1, 2, 3...
             final_df.columns = [str(i) for i in range(1, num_days + 1)]
-            # 加入夥伴姓名作為第一欄
             final_df.insert(0, "夥伴 \ 日期", final_df.index)
             
-            # 更新雲端
             conn.update(worksheet="最終班表", data=final_df)
-            st.success("🎉 排班運算完成！結果已存入下方總表。")
+            st.success("🎉 排班運算完成！")
             st.rerun()
 
     st.divider()
-    st.subheader("📋 本月最終班表總表 (可手動微調)")
     
+    # --- 關鍵：彩色顯示與微調介面 ---
     try:
         schedule_df = conn.read(worksheet="最終班表", ttl=0)
-        schedule_df = schedule_df.dropna(how="all").fillna("🔴 休")
+        schedule_df = schedule_df.dropna(how="all").fillna("休")
         schedule_df.set_index(schedule_df.columns[0], inplace=True)
         
-        schedule_configs = {
-            str(col): st.column_config.SelectboxColumn(str(col), options=all_shifts) 
-            for col in schedule_df.columns
-        }
-        
-        edited_schedule_df = st.data_editor(
-            schedule_df,
-            column_config=schedule_configs,
-            use_container_width=True,
-            key="schedule_editor",
-            height=300
-        )
-        
-        if st.button("💾 儲存微調後的最終班表"):
-            save_schedule_df = edited_schedule_df.reset_index()
-            conn.update(worksheet="最終班表", data=save_schedule_df)
-            st.success("✅ 最終班表已成功儲存！")
+        # 1. 定義顏色函數（柔和的粉色系，不傷眼睛）
+        def style_cells(val):
+            if val == "休":
+                return "background-color: #FFD2D2; color: #D60000; font-weight: bold;" # 柔和紅
+            elif val == "6:30":
+                return "background-color: #D2E9FF; color: #005EA6;" # 柔和藍
+            elif val == "8:00":
+                return "background-color: #E1F5FE; color: #0288D1;" # 淺天藍
+            elif val == "10:30":
+                return "background-color: #FFF3CD; color: #856404;" # 柔和黃
+            elif val == "7:00":
+                return "background-color: #E8D2FF; color: #6F00D2;" # 柔和紫
+            elif val == "9:30":
+                return "background-color: #FFE4CA; color: #A65100;" # 柔和橘
+            elif val == "10:00":
+                return "background-color: #E2F0D9; color: #385623;" # 柔和綠
+            return ""
+
+        # 2. 建立一個勾選框，讓老闆決定要「看班表」還是「改班表」
+        is_edit_mode = st.checkbox("✍️ 開啟【手動微調模式】（會暫時拔除顏色，允許下拉修改）")
+
+        if not is_edit_mode:
+            # 【預覽模式】：用 st.dataframe 加上 Pandas 漂亮的底色
+            st.subheader("📋 本月班表總表（彩色預覽）")
+            styled_df = schedule_df.style.map(style_cells)
+            st.dataframe(styled_df, use_container_width=True, height=350)
+        else:
+            # 【編輯模式】：切換回可以下拉修改的互動表格
+            st.subheader("🛠️ 班表微調中...")
+            schedule_configs = {str(col): st.column_config.SelectboxColumn(str(col), options=all_shifts) for col in schedule_df.columns}
+            
+            edited_schedule_df = st.data_editor(
+                schedule_df,
+                column_config=schedule_configs,
+                use_container_width=True,
+                key="schedule_editor",
+                height=300
+            )
+            
+            if st.button("💾 儲存微調後的最終班表", type="primary"):
+                save_schedule_df = edited_schedule_df.reset_index()
+                conn.update(worksheet="最終班表", data=save_schedule_df)
+                st.success("✅ 最終班表已成功儲存！")
+                st.rerun()
+                
     except Exception as e:
         st.info("目前還沒有排班資料，請點擊上方按鈕開始自動排班。")
