@@ -17,7 +17,7 @@ try:
     
     # 【關鍵設定】：將第一欄（夥伴名稱）設為 Index
     # 這樣在畫面上往右滑動看月底的班時，名字才會固定凍結在左邊！
-    df.set_index("夥伴 \ 日期", inplace=True)
+    df.set_index(df.columns[0], inplace=True)
 
 except Exception as e:
     st.error(f"讀取試算表失敗，請檢查連線：{e}")
