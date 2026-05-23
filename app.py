@@ -75,9 +75,16 @@ with tab1:
         for emp, dates in current_selections.items():
             for d_str in dates:
                 new_rows.append({"員工姓名": emp, "休假日期": d_str})
-        current_month_df = pd.DataFrame(new_rows)
+                
+        # 【關鍵修正 1】：強制指定欄位名稱，避免 0 人畫休時產生沒有欄位的幽靈表格
+        current_month_df = pd.DataFrame(new_rows, columns=["員工姓名", "休假日期"])
         
         updated_df = pd.concat([other_months_df, current_month_df], ignore_index=True)
+        
+        # 【關鍵修正 2】：如果連舊月份都沒資料，確保仍寫入正確的標題結構
+        if updated_df.empty:
+            updated_df = pd.DataFrame(columns=["員工姓名", "休假日期"])
+            
         conn.update(worksheet="休假紀錄", data=updated_df)
         st.success("✅ 所有人畫休紀錄已成功同步至雲端！")
         st.rerun()
