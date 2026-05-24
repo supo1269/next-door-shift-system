@@ -19,6 +19,9 @@ weekday_shifts = ["6:30", "8:00", "10:30"]
 weekend_shifts = ["7:00", "8:00", "8:00", "9:30", "10:00"]
 weekday_mapping = ["一", "二", "三", "四", "五", "六", "日"]
 
+# 限制不上最早班的人員名單
+early_shift_restricted_staff = ["Ping(兼)", "雅妍(兼)"]
+
 tab1, tab2 = st.tabs(["📝 夥伴畫休登記", "🤖 排班與歷史紀錄管理"])
 
 # --- 頁籤 1: 畫休登記 ---
@@ -68,8 +71,10 @@ with tab2:
         
         for d_idx in range(num_days):
             d_obj = datetime.date(target_year, target_month, d_idx + 1)
+            date_str = d_obj.strftime("%Y-%m-%d")
             is_wknd = d_obj.weekday() >= 5
-            unavail = this_month_leaves[this_month_leaves["休假日期"] == d_obj.strftime("%Y-%m-%d")]["員工姓名"].tolist()
+            
+            unavail = this_month_leaves[this_month_leaves["休假日期"] == date_str]["員工姓名"].tolist()
             if not is_wknd and "雅妍(兼)" not in unavail: unavail.append("雅妍(兼)")
             for e in all_employees:
                 if consecutive_days[e] >= 6 and e not in unavail: unavail.append(e)
@@ -78,14 +83,50 @@ with tab2:
             avail_pt = [e for e in part_time if e not in unavail]
             random.shuffle(avail_ft); random.shuffle(avail_pt)
             
+            # 決定今日出勤名單與當日原始班別
             assigned = (avail_ft[:2] + avail_pt[:1]) if not is_wknd else (avail_ft + avail_pt)[:5]
             shifts = weekday_shifts.copy() if not is_wknd else weekend_shifts.copy()
             random.shuffle(shifts)
-            for i, e in enumerate(assigned):
-                schedule_result[e][d_idx] = shifts[i]
+            shifts = shifts[:len(assigned)] # 確保人數不足時班別與人數一致
+            
+            # --- 【核心升級】：防呆指派（Ping、雅妍不上最早班） ---
+            earliest_shift = "6:30" if not is_wknd else "7:00"
+            assigned_shifts = {}
+            
+            # 分流：今日出勤人員中，誰「能上最早班」，誰「不能上最早班」
+            unrestricted_pool = [e for e in assigned if e not in early_shift_restricted_staff]
+            restricted_pool = [e for e in assigned if e in early_shift_restricted_staff]
+            
+            remaining_shifts = shifts.copy()
+            early_shift_count = remaining_shifts.count(earliest_shift)
+            
+            # 優先把最早班塞給 unrestricted_pool (正職或其他兼職)
+            for _ in range(early_shift_count):
+                if unrestricted_pool and earliest_shift in remaining_shifts:
+                    person = unrestricted_pool.pop(0)
+                    assigned_shifts[person] = earliest_shift
+                    remaining_shifts.remove(earliest_shift)
+            
+            # 剩下來的班別（非最早班）再與剩下的人（包含Ping、雅妍）混合隨機抽籤
+            remaining_people = unrestricted_pool + restricted_pool
+            random.shuffle(remaining_shifts)
+            
+            for person in remaining_people:
+                assigned_shifts[person] = remaining_shifts.pop(0)
+            
+            # 將最終安全的排班結果寫入總表，並累計連續上班天數
+            for e in assigned:
+                schedule_result[e][d_idx] = assigned_shifts[e]
                 consecutive_days[e] += 1
+                
             for e in all_employees:
                 if e not in assigned: consecutive_days[e] = 0
+                
+            # 人手不足警告提示
+            if not is_wknd and (len(avail_ft) < 2 or len(avail_pt) < 1):
+                st.warning(f"⚠️ {date_str} 平日人手不足！已盡力排班。")
+            elif is_wknd and len(avail_ft) + len(avail_pt) < 5:
+                st.warning(f"⚠️ {date_str} 假日人手不足！已盡力排班。")
         
         final_df = pd.DataFrame(schedule_result).T
         final_df.columns = [str(i) for i in range(1, num_days + 1)]
@@ -103,7 +144,7 @@ with tab2:
         df = conn.read(worksheet=view_sheet, ttl=0).dropna(how="all").set_index("夥伴 \ 日期")
         
         def style_cells(val):
-            colors = {"休": "#FFD2D2; color:#D60000", "6:30": "#D2E9FF; color:#005EA6", 
+            colors = {"休": "#FFD2D2; color:#D60000; font-weight:bold;", "6:30": "#D2E9FF; color:#005EA6", 
                       "8:00": "#E1F5FE; color:#0288D1", "10:30": "#FFF3CD; color:#856404", 
                       "7:00": "#E8D2FF; color:#6F00D2", "9:30": "#FFE4CA; color:#A65100", 
                       "10:00": "#E2F0D9; color:#385623"}
@@ -112,11 +153,13 @@ with tab2:
         if not st.checkbox("✍️ 開啟微調模式"):
             disp = df.copy()
             disp.columns = [f"{c} ({weekday_mapping[datetime.date(v_year, v_month, int(c)).weekday()]})" for c in disp.columns]
-            st.dataframe(disp.style.map(style_cells), use_container_width=True)
+            st.subheader("📋 本月班表總表（彩色預覽）")
+            st.dataframe(disp.style.map(style_cells), use_container_width=True, height=350)
         else:
+            st.subheader("🛠️ 班表微調中...")
             cfg = {str(c): st.column_config.SelectboxColumn(f"{c} ({weekday_mapping[datetime.date(v_year, v_month, int(c)).weekday()]})", options=all_shifts) for c in df.columns}
             ed = st.data_editor(df, column_config=cfg, use_container_width=True)
-            if st.button("💾 儲存微調結果"):
+            if st.button("💾 儲存微調結果", type="primary"):
                 conn.update(worksheet=view_sheet, data=ed.reset_index())
                 st.success("更新成功！")
                 st.rerun()
