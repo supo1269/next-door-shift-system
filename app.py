@@ -11,7 +11,7 @@ st.title("🍔 隔壁早餐店 - 智慧排班管理系統")
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 # 定義員工與班別
-full_time = ["權 (正)", "Popo(正)", "Ting(正)"]
+full_time = ["權 (正)", "Ting(正)" , "Popo(正)"]
 part_time = ["柏吟(兼)", "Ping(兼)", "雅妍(兼)", "胖弟(兼)"]
 all_employees = full_time + part_time
 all_shifts = ["休", "6:30", "8:00", "10:30", "7:00", "9:30", "10:00"]
